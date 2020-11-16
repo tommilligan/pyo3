@@ -263,6 +263,7 @@ fn starts_with(entry: &DirEntry, pat: &str) -> bool {
     let name = entry.file_name();
     name.to_string_lossy().starts_with(pat)
 }
+
 fn ends_with(entry: &DirEntry, pat: &str) -> bool {
     let name = entry.file_name();
     name.to_string_lossy().ends_with(pat)
@@ -773,22 +774,7 @@ fn configure(interpreter_config: &InterpreterConfig) -> Result<String> {
         bail!("Python 2 is not supported");
     }
 
-    let minor = if env::var_os("CARGO_FEATURE_ABI3").is_some() {
-        println!("cargo:rustc-cfg=Py_LIMITED_API");
-        // Check any `abi3-py3*` feature is set. If not, use the interpreter version.
-        let abi3_minor = (PY3_MIN_MINOR..=ABI3_MAX_MINOR)
-            .find(|i| env::var_os(format!("CARGO_FEATURE_ABI3_PY3{}", i)).is_some());
-        match (abi3_minor, interpreter_config.version.minor) {
-            (Some(abi3_minor), Some(interpreter_minor)) if abi3_minor > interpreter_minor => bail!(
-                "You cannot set a mininimum Python version {} higher than the interpreter version {}",
-                abi3_minor,
-                interpreter_minor
-            ),
-            _ => abi3_minor.or(interpreter_config.version.minor),
-        }
-    } else {
-        interpreter_config.version.minor
-    };
+    let minor = interpreter_config.version.minor;
 
     if let Some(minor) = minor {
         for i in PY3_MIN_MINOR..=minor {
@@ -796,7 +782,6 @@ fn configure(interpreter_config: &InterpreterConfig) -> Result<String> {
             flags += format!("CFG_Py_3_{},", i).as_ref();
         }
     }
-    println!("cargo:rustc-cfg=Py_3");
 
     Ok(flags)
 }
@@ -837,6 +822,21 @@ fn check_target_architecture(interpreter_config: &InterpreterConfig) -> Result<(
 }
 
 fn main() -> Result<()> {
+    // If we're using abi3 with a specific version constraint, we don't any python interpreter at
+    // all.
+    // We can check for the abi3-py3{ABI3_MAX_MINOR} only because lower version depend on it.
+    if env::var_os(format!("CARGO_FEATURE_ABI3_PY3{}", ABI3_MAX_MINOR)).is_some() {
+        println!("cargo:rustc-cfg=Py_LIMITED_API");
+        let mut flags = vec!["FLAG_WITH_THREAD=1".to_string()];
+        for minor in PY3_MIN_MINOR..=ABI3_MAX_MINOR {
+            println!("cargo:rustc-cfg=Py_3_{}", minor);
+            flags.push(format!("CFG_Py_3_{},", minor));
+        }
+        println!("cargo:rustc-cfg=py_sys_config=\"WITH_THREAD\"");
+        println!("cargo:python_flags=,{}", flags.join(","));
+        return Ok(());
+    }
+
     // 1. Setup cfg variables so we can do conditional compilation in this library based on the
     // python interpeter's compilation flags. This is necessary for e.g. matching the right unicode
     // and threading interfaces.  First check if we're cross compiling, if so, we cannot run the
