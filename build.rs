@@ -1,4 +1,4 @@
-use std::{env, process::Command};
+use std::{env, path::Path, process::Command};
 
 use pyo3_build_config::{
     bail, cargo_env_var, ensure, env_var,
@@ -188,6 +188,12 @@ fn configure_pyo3() -> Result<()> {
     ensure_python_version(&interpreter_config)?;
     ensure_target_architecture(&interpreter_config)?;
     emit_cargo_configuration(&interpreter_config)?;
+    let pyo3_build_config_path = Path::new(pyo3_build_config::PATH);
+    let pyo3_build_config_out_dir = pyo3_build_config_path
+        .parent()
+        .ok_or("failed to get pyo3_build_config OUT_DIR")?;
+    std::fs::create_dir_all(&pyo3_build_config_out_dir)
+        .with_context(|| "pyo3_build_config OUT_DIR could not be created".to_owned())?;
     interpreter_config.to_writer(
         &mut std::fs::File::create(pyo3_build_config::PATH).with_context(|| {
             format!(
